@@ -1,0 +1,16 @@
+{
+  "name": "mart-in-supermarket",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others \"node server/server.js\" \"npm run dev --prefix client\"",
+    "start": "node server/server.js",
+    "seed": "node server/seeds/products.js",
+    "build:client": "npm run build --prefix client"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2",
+    "framer-motion": "^12.43.0",
+    "lucide-react": "^1.28.0"
+  }
+}
