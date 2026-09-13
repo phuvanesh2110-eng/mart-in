@@ -7,7 +7,26 @@ const axios = require("axios");
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+
+// Configure CORS to accept local dev and production origins
+const allowedOrigins = [
+  "http://localhost:3000",
+  process.env.FRONTEND_URL || "",
+  "https://mart-in.vercel.app",
+].filter(Boolean);
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // allow requests with no origin (e.g., curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS policy: Origin not allowed"));
+    },
+    credentials: true,
+  })
+);
 
 const Product = require("./models/Product");
 const User = require("./models/User");
@@ -155,26 +174,58 @@ app.get("/api/products", async (req, res) => {
 app.put("/api/products/admin/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { price, originalPrice, stockQuantity, inStock, isBogo, isOnOffer, discountPercentage } = req.body;
+    // accept multiple possible frontend field names for robustness
+    const {
+      price,
+      mrp,
+      originalPrice,
+      stock,
+      stockQuantity,
+      inStock,
+      bogo,
+      isBogo,
+      isOnOffer,
+      discount,
+      discountPercentage,
+      ...rest
+    } = req.body;
 
     const product = await Product.findById(id);
     if (!product) {
-      return res.status(404).json({ error: "Product not found" });
+      return res.status(404).json({ success: false, message: "Product not found" });
     }
 
+    // Price mappings
     if (price !== undefined) product.price = Number(price);
-    if (originalPrice !== undefined) product.originalPrice = Number(originalPrice);
+    else if (mrp !== undefined) product.price = Number(mrp);
+    else if (originalPrice !== undefined) product.originalPrice = Number(originalPrice);
+
+    // Stock mappings
     if (stockQuantity !== undefined) product.stockQuantity = Number(stockQuantity);
+    else if (stock !== undefined) product.stockQuantity = Number(stock);
+
     if (inStock !== undefined) product.inStock = Boolean(inStock);
+
+    // BOGO mappings
     if (isBogo !== undefined) product.isBogo = Boolean(isBogo);
+    else if (bogo !== undefined) product.isBogo = Boolean(bogo);
+
+    // Offer/discount mappings
     if (isOnOffer !== undefined) product.isOnOffer = Boolean(isOnOffer);
     if (discountPercentage !== undefined) product.discountPercentage = Number(discountPercentage);
+    else if (discount !== undefined) product.discountPercentage = Number(discount);
+
+    // Accept any other direct fields passed through (whitelisted)
+    const allowedExtras = ["title", "name", "description", "category", "image"];
+    allowedExtras.forEach((key) => {
+      if (rest[key] !== undefined) product[key] = rest[key];
+    });
 
     await product.save();
     res.json({ success: true, product });
   } catch (err) {
     console.error("Admin product update error:", err);
-    res.status(500).json({ error: "Failed to update product" });
+    res.status(500).json({ success: false, message: "Failed to update product" });
   }
 });
 
