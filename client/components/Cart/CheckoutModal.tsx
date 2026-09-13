@@ -62,6 +62,9 @@ export default function CheckoutModal({
     setIsSubmitting(true);
 
     try {
+      const storedUser = localStorage.getItem("user");
+      const parsedUser = storedUser ? JSON.parse(storedUser) : null;
+
       const orderPayload = {
         deliveryType,
         store: deliveryType === "Pickup" ? selectedStore : "Home Delivery",
@@ -69,13 +72,18 @@ export default function CheckoutModal({
         timeSlot: selectedSlot,
         address: deliveryType === "Delivery" ? address : "",
         items: cart,
+        subtotal: Number(subtotal.toFixed(2)),
         total: Number(totalAmount.toFixed(2)),
         status: "Confirmed",
+        userId: parsedUser?.id || parsedUser?._id || null,
+        userName: parsedUser?.name || "Valued Customer",
+        userEmail: parsedUser?.email || "customer@martin.com",
         createdAt: new Date().toISOString(),
       };
 
       const response = await fetcher<{ success?: boolean; order?: any; pass?: any }>("/orders", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orderPayload),
       });
 
@@ -96,6 +104,7 @@ export default function CheckoutModal({
         timeSlot: selectedSlot,
         address: deliveryType === "Delivery" ? address : "",
         items: cart,
+        subtotal: Number(subtotal.toFixed(2)),
         total: Number(totalAmount.toFixed(2)),
         status: "Confirmed",
         mode: "offline-demo",

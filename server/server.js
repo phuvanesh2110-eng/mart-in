@@ -8,23 +8,34 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-// Configure CORS to accept local dev and production origins
 const allowedOrigins = [
   "http://localhost:3000",
-  process.env.FRONTEND_URL || "",
+  "http://127.0.0.1:3000",
   "https://mart-in.vercel.app",
+  "https://www.mart-in.vercel.app",
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_URL,
+  process.env.NEXT_PUBLIC_APP_URL,
 ].filter(Boolean);
+
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // allow requests with no origin (e.g., curl, server-to-server)
+    origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        return callback(null, true);
-      }
-      return callback(new Error("CORS policy: Origin not allowed"));
+      const isAllowed = allowedOrigins.some((allowedOrigin) => {
+        if (allowedOrigin === origin) return true;
+        if (allowedOrigin.endsWith("*.vercel.app")) {
+          return origin.endsWith(allowedOrigin.replace("*.", "."));
+        }
+        return false;
+      });
+
+      if (isAllowed) return callback(null, true);
+      callback(new Error("CORS policy: Origin not allowed"));
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
@@ -35,11 +46,17 @@ const Order = require("./models/Order");
 // In-memory OTP storage
 const otpStore = new Map();
 
-// Connect to MongoDB
+const mongoUri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/mart-in";
+
 mongoose
-  .connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/mart-in")
+  .connect(mongoUri, {
+    serverSelectionTimeoutMS: 15000,
+    autoIndex: true,
+  })
   .then(() => console.log("MongoDB Connected Successfully!"))
-  .catch((err) => console.error("MongoDB Connection Error:", err));
+  .catch((err) => {
+    console.error("MongoDB Connection Error:", err.message || err);
+  });
 
 const createUpiLink = (amount, orderId) => {
   const total = Number(amount || 0);
@@ -231,19 +248,29 @@ app.put("/api/products/admin/:id", async (req, res) => {
 
 // --- ORDER ENDPOINTS ---
 
+app.get("/api/orders", async (req, res) => {
+  try {
+    const orders = await Order.find().sort({ createdAt: -1 });
+    return res.json(orders);
+  } catch (err) {
+    console.error("Fetch all orders error:", err);
+    return res.status(500).json({ success: false, message: "Failed to fetch orders" });
+  }
+});
+
 // GET Customer Order History /api/orders/my-orders
 app.get("/api/orders/my-orders", async (req, res) => {
   try {
     const { email } = req.query;
     if (!email) {
-      return res.status(400).json({ error: "Customer email is required" });
+      return res.status(400).json({ success: false, message: "Customer email is required" });
     }
 
     const orders = await Order.find({ userEmail: email.toString().toLowerCase() }).sort({ createdAt: -1 });
-    res.json(orders);
+    return res.json(orders);
   } catch (err) {
     console.error("Fetch customer orders error:", err);
-    res.status(500).json({ error: "Failed to fetch order history" });
+    return res.status(500).json({ success: false, message: "Failed to fetch order history" });
   }
 });
 
@@ -251,10 +278,10 @@ app.get("/api/orders/my-orders", async (req, res) => {
 app.get("/api/orders/admin/all", async (req, res) => {
   try {
     const orders = await Order.find().sort({ createdAt: -1 });
-    res.json(orders);
+    return res.json(orders);
   } catch (err) {
     console.error("Fetch admin orders error:", err);
-    res.status(500).json({ error: "Failed to fetch orders" });
+    return res.status(500).json({ success: false, message: "Failed to fetch orders" });
   }
 });
 
@@ -321,42 +348,65 @@ app.get("/api/admin/analytics", async (req, res) => {
 // POST Create Order /api/orders
 app.post("/api/orders", async (req, res) => {
   try {
-    const { storeName, store, timeSlot, items, total, status, deliveryType, address, userEmail, userName } = req.body;
-    const orderId = `MI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const safeTotal = Number(total || 0);
+    const {
+      storeName,
+      store,
+      timeSlot,
+      items,
+      total,
+      subtotal,
+      status,
+      deliveryType,
+      address,
+      userEmail,
+      userName,
+      userId,
+    } = req.body;
 
+    const orderId = `MI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const safeTotal = Number(total || subtotal || 0);
     const isDelivery = deliveryType === "Delivery";
+    const normalizedEmail = (userEmail || "customer@martin.com").toString().trim().toLowerCase();
 
     const newOrder = new Order({
       orderId,
-      userEmail: (userEmail || "customer@martin.com").toLowerCase(),
+      userId: userId || null,
+      userEmail: normalizedEmail,
       userName: userName || "Valued Customer",
       storeName: isDelivery ? "Home Delivery" : (storeName || store || "Mart-In Flagship Store"),
       deliveryType: deliveryType || "Pickup",
       address: address || "",
       timeSlot: timeSlot || "Instant 30 Mins",
       items: Array.isArray(items) ? items : [],
-      subtotal: safeTotal,
+      subtotal: Number(subtotal || safeTotal),
       total: safeTotal,
       status: status || "Confirmed",
       qrCode: createUpiLink(safeTotal, orderId),
     });
 
     await newOrder.save();
-    res.json({ success: true, orderId, pass: newOrder, order: newOrder });
+    return res.status(201).json({ success: true, orderId, pass: newOrder, order: newOrder });
   } catch (err) {
     console.error("Order error:", err);
-    res.status(500).json({ error: "Checkout failed" });
+    return res.status(500).json({ success: false, message: "Checkout failed" });
   }
 });
 
 // Backward Compatible Pass endpoints
 app.get("/api/passes", async (req, res) => {
   try {
-    const orders = await Order.find().sort({ createdAt: -1 });
-    res.json(orders);
+    const { userEmail } = req.query;
+    const query = { status: { $in: ["Confirmed", "Preparing", "Ready", "ACTIVE"] } };
+
+    if (userEmail) {
+      query.userEmail = String(userEmail).toLowerCase();
+    }
+
+    const orders = await Order.find(query).sort({ createdAt: -1 });
+    return res.json(orders);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch passes" });
+    console.error("Fetch passes error:", err);
+    return res.status(500).json({ success: false, message: "Failed to fetch passes" });
   }
 });
 

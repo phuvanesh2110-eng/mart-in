@@ -13,6 +13,7 @@ const OrderItemSchema = new mongoose.Schema({
 
 const OrderSchema = new mongoose.Schema({
   orderId: { type: String, required: true, unique: true },
+  userId: { type: String, default: null },
   userEmail: { type: String, required: true },
   userName: { type: String },
   storeName: { type: String, default: "Mart-In Store" },
@@ -25,7 +26,7 @@ const OrderSchema = new mongoose.Schema({
   total: { type: Number, required: true },
   status: {
     type: String,
-    enum: ["Confirmed", "Preparing", "Ready", "Delivered", "Cancelled"],
+    enum: ["Confirmed", "Preparing", "Ready", "Delivered", "Cancelled", "ACTIVE"],
     default: "Confirmed",
   },
   qrCode: String,

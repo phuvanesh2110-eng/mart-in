@@ -26,17 +26,19 @@ export default function Home() {
   // User session state
   const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
 
-  const refreshPassesCount = () => {
-    fetcher<any[]>("/passes")
-      .then((data) => {
-        const payload = data as any;
-        const passes = Array.isArray(payload) ? payload : [];
-        const count = passes.filter((pass) =>
-          ["ACTIVE", "Confirmed", "Preparing", "Ready"].includes(pass?.status)
-        ).length;
-        setActivePassesCount(typeof payload?.count === "number" ? payload.count : count);
-      })
-      .catch((err: any) => console.log("Pass count fetch offline/default:", err));
+  const refreshPassesCount = async () => {
+    try {
+      const orders = await fetcher<any[]>("/orders").catch(() => [] as any[]);
+      const fallback = await fetcher<any[]>("/passes").catch(() => [] as any[]);
+      const activeOrders = Array.isArray(orders) && orders.length > 0 ? orders : fallback;
+      const count = activeOrders.filter((pass) =>
+        ["ACTIVE", "Confirmed", "Preparing", "Ready"].includes(String(pass?.status || ""))
+      ).length;
+      setActivePassesCount(count);
+    } catch (err) {
+      console.log("Pass count fetch offline/default:", err);
+      setActivePassesCount(0);
+    }
   };
 
   useEffect(() => {

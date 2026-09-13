@@ -48,17 +48,28 @@ export default function PassesDrawer({ isOpen, onClose }: PassesDrawerProps) {
   useEffect(() => {
     if (!isOpen) return;
 
-    setLoading(true);
-    fetcher<Pass[]>("/passes")
-      .then((data) => {
-        const normalized = Array.isArray(data) ? data.map(normalizePass) : [];
+    const loadPasses = async () => {
+      setLoading(true);
+      try {
+        const orders = await fetcher<any[]>("/orders");
+        const fallback = await fetcher<any[]>("/passes").catch(() => []);
+        const rawPasses = Array.isArray(orders) && orders.length > 0 ? orders : fallback;
+        const normalized = Array.isArray(rawPasses)
+          ? rawPasses.filter((pass) => {
+              const status = String(pass?.status || "");
+              return ["Confirmed", "Preparing", "Ready", "ACTIVE"].includes(status);
+            }).map(normalizePass)
+          : [];
         setPasses(normalized);
-      })
-      .catch((err) => {
-        console.error(err);
+      } catch (err) {
+        console.error("Failed to load passes", err);
         setPasses([]);
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPasses();
   }, [isOpen]);
 
   if (!isOpen) return null;
